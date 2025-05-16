@@ -15,13 +15,29 @@
       "all_frames": true,
       "js": ["content/content-script.js"],
       "matches": [
-        "https://www.cityexperiences.com/san-francisco/city-cruises/alcatraz/tour-options/alcatraz-day-tour/*"
+        "https://www.cityexperiences.com/*",
+        "https://*.cityexperiences.com/*",
+        "https://*.embedsocial.com/*",
+        "https://embedsocial.com/*",
+        "https://*.citycruises.com/*",
+        "https://citycruises.com/*",
+        "https://*.ticketcounter.eu/*",
+        "https://ticketcounter.eu/*"
       ],
       "run_at": "document_idle"
     }
   ],
   "description": "Automatise la recherche de créneau 10:10 AM sur City Cruises Alcatraz",
-  "host_permissions": ["https://www.cityexperiences.com/*"],
+  "host_permissions": [
+    "https://www.cityexperiences.com/*",
+    "https://*.cityexperiences.com/*",
+    "https://*.embedsocial.com/*",
+    "https://embedsocial.com/*",
+    "https://*.citycruises.com/*",
+    "https://citycruises.com/*",
+    "https://*.ticketcounter.eu/*",
+    "https://ticketcounter.eu/*"
+  ],
   "manifest_version": 3,
   "name": "Booking Automator",
   "permissions": ["scripting", "storage", "activeTab", "tabs"],
