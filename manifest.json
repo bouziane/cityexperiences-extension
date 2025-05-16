@@ -1,0 +1,28 @@
+{
+  "action": {
+    "default_icon": {
+      "128": "icons/icon-128.png",
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png"
+    },
+    "default_popup": "popup/popup.html"
+  },
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "content_scripts": [
+    {
+      "js": ["content/content-script.js"],
+      "matches": [
+        "https://www.cityexperiences.com/san-francisco/city-cruises/alcatraz/tour-options/alcatraz-day-tour/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "description": "Automatise la recherche de créneau 10:10 AM sur City Cruises Alcatraz",
+  "host_permissions": ["https://www.cityexperiences.com/*"],
+  "manifest_version": 3,
+  "name": "Booking Automator",
+  "permissions": ["scripting", "storage", "activeTab", "tabs"],
+  "version": "1.0.1"
+}
