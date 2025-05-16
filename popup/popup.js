@@ -7,6 +7,15 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
 
+  // Affichage des notes d'état
+  setInterval(() => {
+    chrome.storage.local.get("lastNote", (data) => {
+      if (data.lastNote) {
+        document.getElementById("status").textContent = data.lastNote;
+      }
+    });
+  }, 500);
+
   goBtn.addEventListener("click", () => {
     console.log("🔘 Clic détecté");
 

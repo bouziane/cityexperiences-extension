@@ -12,6 +12,7 @@
   },
   "content_scripts": [
     {
+      "all_frames": true,
       "js": ["content/content-script.js"],
       "matches": [
         "https://www.cityexperiences.com/san-francisco/city-cruises/alcatraz/tour-options/alcatraz-day-tour/*"
