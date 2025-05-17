@@ -12,6 +12,139 @@
   let currentQuantity = 0; // Compteur actuel
   let baseUrl = ""; // URL de base pour revenir à la page principale
 
+  // Fonction pour compter les tickets dans le panier
+  async function countCartItems() {
+    try {
+      console.log("🧮 Comptage des tickets dans le panier");
+
+      // Chercher différents sélecteurs possibles pour les articles du panier
+      const selectors = [
+        // Sélecteurs génériques pour les articles du panier
+        ".cart-item",
+        ".item-row",
+        ".line-item",
+        // Pour les titres des articles qui contiennent généralement "Alcatraz"
+        "h3:contains('Alcatraz')",
+        "div[class*='cart'] h3",
+        ".cart-product-name",
+        // Pour les compteurs de quantité
+        ".quantity-selector",
+        "input[name*='quantity']",
+        "[data-quantity]",
+        // Lignes génériques du panier
+        "tr.cart-item",
+        "div[class*='cartItem']",
+        "li[class*='cart-item']",
+      ];
+
+      let itemCount = 0;
+      let itemSelector = "";
+
+      // Tester chaque sélecteur
+      for (const selector of selectors) {
+        const elements = document.querySelectorAll(selector);
+        if (elements.length > 0) {
+          itemCount = elements.length;
+          itemSelector = selector;
+          console.log(
+            `🧮 ${itemCount} articles trouvés avec le sélecteur: ${selector}`
+          );
+          break;
+        }
+      }
+
+      // Si aucun sélecteur ne fonctionne, rechercher par texte
+      if (itemCount === 0) {
+        console.log("🧮 Recherche d'articles par texte");
+
+        // Chercher des textes qui pourraient indiquer un produit Alcatraz
+        const textNodes = document.querySelectorAll(
+          "h1, h2, h3, h4, h5, p, span, div"
+        );
+        const keywords = [
+          "Alcatraz",
+          "City Cruises",
+          "Day Tour",
+          "tour",
+          "ticket",
+          "admission",
+        ];
+
+        for (const node of textNodes) {
+          const text = node.textContent.toLowerCase();
+
+          if (
+            keywords.some((keyword) => text.includes(keyword.toLowerCase()))
+          ) {
+            // Trouver l'élément parent qui pourrait être un article du panier
+            let parent = node.parentElement;
+            for (let i = 0; i < 5; i++) {
+              // Remonter jusqu'à 5 niveaux
+              if (
+                parent &&
+                (parent.classList.contains("cart-item") ||
+                  parent.classList.contains("line-item") ||
+                  parent.id.includes("cart") ||
+                  parent.className.includes("cart"))
+              ) {
+                itemCount++;
+                break;
+              }
+              if (parent) parent = parent.parentElement;
+            }
+          }
+        }
+
+        console.log(`🧮 ${itemCount} articles trouvés par recherche de texte`);
+      }
+
+      // Si toujours aucun article trouvé, essayer de lire les quantités numériques
+      if (itemCount === 0) {
+        // Chercher des éléments qui pourraient contenir des chiffres de quantité
+        const quantityElements = document.querySelectorAll(
+          "input[type='number'], .quantity, .qty"
+        );
+
+        for (const el of quantityElements) {
+          if (el.tagName === "INPUT" && el.value) {
+            itemCount += parseInt(el.value) || 0;
+          } else if (el.textContent) {
+            const match = el.textContent.match(/\d+/);
+            if (match) {
+              itemCount += parseInt(match[0]) || 0;
+            }
+          }
+        }
+
+        console.log(`🧮 ${itemCount} articles trouvés en lisant les quantités`);
+      }
+
+      // Fallback: si on ne trouve toujours rien, utiliser le compteur interne
+      if (itemCount === 0) {
+        console.log(
+          "🧮 Impossible de détecter les articles, utilisation du compteur interne"
+        );
+        return currentQuantity;
+      }
+
+      console.log(`🧮 Total: ${itemCount} tickets dans le panier`);
+
+      // Mettre à jour le compteur interne pour correspondre au panier
+      if (itemCount !== currentQuantity) {
+        console.log(
+          `🧮 Mise à jour du compteur: ${currentQuantity} → ${itemCount}`
+        );
+        currentQuantity = itemCount;
+        chrome.storage.local.set({ currentQuantity: itemCount });
+      }
+
+      return itemCount;
+    } catch (error) {
+      console.error("❌ Erreur lors du comptage des articles:", error);
+      return currentQuantity; // En cas d'erreur, utiliser le compteur interne
+    }
+  }
+
   // Ne pas exécuter le script sur la page du panier (sauf si on revient pour continuer)
   if (
     (window.location.href.includes("/checkout") ||
@@ -30,30 +163,29 @@
         "🧪 DEBUG: Vérification de continuation depuis sortie anticipée"
       );
 
-      // Ajouter un délai pour s'assurer que la page est complètement chargée
-      setTimeout(() => {
+      // Compter les articles dans le panier et mettre à jour le compteur
+      (async () => {
+        const cartCount = await countCartItems();
+
         chrome.storage.local.get(
-          ["targetQuantity", "currentQuantity", "baseUrl"],
+          ["targetQuantity", "baseUrl"],
           function (result) {
             console.log(
               "🧪 DEBUG: Résultat récupération pour sortie anticipée:",
               result
             );
 
-            const storedQuantity = result.currentQuantity || 0;
             const storedTarget = result.targetQuantity || 1;
 
             console.log(
-              `🧪 DEBUG: Progression: ${storedQuantity}/${storedTarget}`
+              `🧪 DEBUG: Progression réelle: ${cartCount}/${storedTarget}`
             );
-            sendNote(`🛒 Panier: ${storedQuantity}/${storedTarget} tickets`);
+            sendNote(`🛒 Panier: ${cartCount}/${storedTarget} tickets`);
 
-            if (storedQuantity < storedTarget && result.baseUrl) {
+            if (cartCount < storedTarget && result.baseUrl) {
               console.log(
                 "🧪 DEBUG: Conditions de continuation satisfaites, continuer les achats"
               );
-              sendNote(`🔄 Continuation (${storedQuantity}/${storedTarget})`);
-
               // Forcer le rechargement avec continueShopping=true pour contourner la sortie anticipée
               const continueUrl = result.baseUrl.includes("?")
                 ? result.baseUrl + "&continueShopping=true"
@@ -63,22 +195,15 @@
 
               setTimeout(() => {
                 window.location.href = continueUrl;
-              }, 1000);
+              }, 500); // Réduit de 1000 à 500ms
             } else {
               console.log(
                 "🧪 DEBUG: Pas de continuation nécessaire ou possible depuis sortie anticipée"
               );
-              if (storedQuantity >= storedTarget) {
-                sendNote(
-                  `✅ Terminé! ${storedTarget} tickets ajoutés au panier`
-                );
-              } else {
-                sendNote("⚠️ Impossible de continuer - URL manquante");
-              }
             }
           }
         );
-      }, 1500); // Délai de 1.5s pour s'assurer que le DOM est prêt
+      })();
     }
 
     return; // Sortir immédiatement pour éviter les rafraîchissements infinis
@@ -479,7 +604,7 @@
       }
 
       // délai initial
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
 
       // Log tous les boutons de la page
       console.log("🔍 Recherche de tous les boutons et liens pertinents:");
@@ -502,9 +627,9 @@
       }
 
       // 2) Attendre avant Check Availability
-      await new Promise((r) => setTimeout(r, 1000));
-      console.log("⌛ 1 s avant Check Availability");
-      sendNote("⌛ 1 s avant Check Availability");
+      await new Promise((r) => setTimeout(r, 500)); // Réduit de 1000 à 500ms
+      console.log("⌛ 0.5s avant Check Availability");
+      sendNote("⌛ Check Availability");
 
       // 3) Cliquer sur Check Availability - méthode améliorée
       const checkBtn = findBookingButton();
@@ -514,7 +639,7 @@
 
         // Faire défiler jusqu'au bouton pour assurer qu'il est visible
         checkBtn.scrollIntoView({ behavior: "smooth", block: "center" });
-        await new Promise((r) => setTimeout(r, 1000)); // attendre la fin du défilement
+        await new Promise((r) => setTimeout(r, 700)); // Réduit de 1000 à 700ms
 
         // Cliquer sur le bouton
         checkBtn.click();
@@ -522,7 +647,7 @@
         sendNote("✅ Bouton de réservation cliqué");
 
         // Attendre que l'iframe se charge
-        await new Promise((r) => setTimeout(r, 5000));
+        await new Promise((r) => setTimeout(r, 3000)); // Réduit de 5000 à 3000ms
 
         // Log pour débugger - vérifier le domaine de l'iframe
         const iframe = document.querySelector("iframe");
@@ -566,12 +691,12 @@
   }
 
   // Fonction pour attendre que le panier se charge après avoir cliqué sur "Add to Cart"
-  async function waitForCart(maxWaitTime = 15000) {
-    // Augmenter le temps d'attente
+  async function waitForCart(maxWaitTime = 10000) {
+    // Réduit de 15000 à 10000ms
     const startTime = Date.now();
 
     // Attente initiale pour laisser la page commencer à charger
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
 
     while (Date.now() - startTime < maxWaitTime) {
       if (
@@ -579,6 +704,10 @@
         window.location.href.includes("cart=1")
       ) {
         console.log("🛒 Page de panier détectée");
+
+        // Compter les tickets dans le panier
+        const cartCount = await countCartItems();
+
         // S'assurer que l'URL de base est sauvegardée dans le stockage
         if (baseUrl) {
           console.log(
@@ -591,7 +720,7 @@
             chrome.storage.local.set(
               {
                 baseUrl: baseUrl,
-                currentQuantity: currentQuantity,
+                currentQuantity: cartCount, // Utiliser le nombre réel d'articles
                 targetQuantity: targetQuantity,
               },
               function () {
@@ -599,7 +728,7 @@
                   "🧪 DEBUG: baseUrl et progression sauvegardées avec succès",
                   {
                     baseUrl,
-                    currentQuantity,
+                    currentQuantity: cartCount,
                     targetQuantity,
                   }
                 );
@@ -608,17 +737,17 @@
             );
           });
 
-          sendNote(`🔗 URL sauvegardée (${currentQuantity}/${targetQuantity})`);
+          sendNote(`🔗 URL sauvegardée (${cartCount}/${targetQuantity})`);
         } else {
           console.warn("⚠️ Pas d'URL de base à sauvegarder dans le panier");
           sendNote("⚠️ Pas d'URL de base disponible");
         }
 
         // Attendre un peu plus pour que la page se charge complètement
-        await new Promise((r) => setTimeout(r, 2500));
+        await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2500 à 1000ms
         return true;
       }
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 300)); // Réduit de 500 à 300ms
     }
     console.warn(
       "⚠️ Page de panier non détectée après " + maxWaitTime / 1000 + " secondes"
@@ -755,35 +884,34 @@
         });
         sendNote("🧪 DEBUG: Page panier détectée");
 
+        // Compter les tickets dans le panier
+        const cartCount = await countCartItems();
+
         // Récupérer les données actuelles du stockage
         chrome.storage.local.get(
-          ["targetQuantity", "currentQuantity", "baseUrl"],
+          ["targetQuantity", "baseUrl"],
           async function (result) {
             console.log("🧪 DEBUG: Valeurs récupérées du stockage:", result);
 
             if (result.targetQuantity) targetQuantity = result.targetQuantity;
-            if (result.currentQuantity)
-              currentQuantity = result.currentQuantity;
             if (result.baseUrl) baseUrl = result.baseUrl;
 
             console.log("📊 État dans le panier: ", {
               baseUrl,
-              currentQuantity,
+              cartCount,
               targetQuantity,
             });
-            sendNote(`📊 Panier: ${currentQuantity}/${targetQuantity}`);
+            sendNote(`📊 Panier: ${cartCount}/${targetQuantity}`);
 
-            if (currentQuantity < targetQuantity) {
+            if (cartCount < targetQuantity) {
               // On est sur la page du panier mais on n'a pas fini
               console.log(
                 "🛒 Sur la page du panier, tentative de continuer les achats"
               );
-              sendNote(
-                `🔄 Continuation (${currentQuantity}/${targetQuantity})`
-              );
+              sendNote(`🔄 Continuation (${cartCount}/${targetQuantity})`);
 
               // Délai pour s'assurer que tout est chargé
-              await new Promise((r) => setTimeout(r, 1500));
+              await new Promise((r) => setTimeout(r, 800)); // Réduit de 1500 à 800ms
 
               // Si baseUrl est défini, naviguer directement
               if (baseUrl) {
@@ -852,7 +980,7 @@
       });
 
       // délai pour que les créneaux apparaissent
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
 
       // Afficher les créneaux disponibles
       const slotButtons = getAllTimeSlotButtons();
@@ -875,13 +1003,13 @@
       // Attendre et cliquer sur "10:10 AM"
       try {
         console.log("⏳ Recherche du créneau '10:10 AM'...");
-        const slotBtn = await waitForButtonWithText("10:10 AM", 20000, 500);
+        const slotBtn = await waitForButtonWithText("10:10 AM", 15000, 300); // Réduit interval de 500 à 300ms
         slotBtn.click();
         console.log("✅ Bouton '10:10 AM' cliqué (iframe)");
         sendNote("✅ Bouton '10:10 AM' cliqué (iframe)");
 
         // attendre puis incrémenter (si besoin)
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
         const incBtnIframe = document.querySelector(
           'button.jss1250.jss1337.jss1339.btnBackgroundColor.quantityIconStyle.jss1330[data-bdd="increment-button"]'
         );
@@ -891,15 +1019,15 @@
           sendNote("✅ Bouton d'incrément cliqué (iframe)");
 
           // Attendre puis cliquer sur "Continue"
-          await new Promise((r) => setTimeout(r, 2000));
+          await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
           const continueClicked = await findAndClickButtonByText(
             "Continue",
-            10000
+            8000 // Réduit de 10000 à 8000ms
           );
 
           if (continueClicked) {
             // Attendre que la page se charge avant de chercher "Add to Cart"
-            await new Promise((r) => setTimeout(r, 3000));
+            await new Promise((r) => setTimeout(r, 2000)); // Réduit de 3000 à 2000ms
 
             // Vérifier et sauvegarder l'URL de base dans le stockage si elle n'est pas vide
             if (baseUrl) {
@@ -926,29 +1054,28 @@
             // Rechercher et cliquer sur "Add to Cart"
             const addToCartClicked = await findAndClickButtonByText(
               "Add to Cart",
-              10000
+              8000 // Réduit de 10000 à 8000ms
             );
 
             // Alternatives si "Add to Cart" n'est pas trouvé
             if (!addToCartClicked) {
-              if (!(await findAndClickButtonByText("Add to cart", 1000))) {
-                if (!(await findAndClickButtonByText("Add to Bag", 1000))) {
-                  await findAndClickButtonByText("Purchase", 1000);
+              if (!(await findAndClickButtonByText("Add to cart", 800))) {
+                // Réduit de 1000 à 800ms
+                if (!(await findAndClickButtonByText("Add to Bag", 800))) {
+                  // Réduit de 1000 à 800ms
+                  await findAndClickButtonByText("Purchase", 800); // Réduit de 1000 à 800ms
                 }
               }
             }
 
-            // Ajouter un délai plus long après le clic sur "Add to Cart"
-            if (addToCartClicked || /* alternatives */ true) {
-              console.log("🧪 DEBUG: Attente prolongée après Add to Cart");
-              await new Promise((r) => setTimeout(r, 5000)); // Délai plus long
-            }
+            // Ajouter un délai plus court après le clic sur "Add to Cart"
+            await new Promise((r) => setTimeout(r, 3000)); // Réduit de 5000 à 3000ms
 
             // Vérifier s'il y a une alerte de chevauchement de temps et la gérer
-            await handleTimeOverlapAlert();
+            await handleTimeOverlapAlert(10000); // Réduit de 20000 à 10000ms
 
-            // Attendre que le panier se charge avec un délai plus long
-            const cartLoaded = await waitForCart(20000); // 20 secondes d'attente max
+            // Attendre que le panier se charge avec un délai plus court
+            const cartLoaded = await waitForCart(12000); // Réduit de 20000 à 12000ms
             console.log("🧪 DEBUG: Résultat de waitForCart:", cartLoaded);
 
             // Vérifier s'il faut continuer les achats
@@ -997,7 +1124,7 @@
                     }
                   }
                 );
-              }, 3000); // Délai plus long avant la redirection
+              }, 1500); // Réduit de 3000 à 1500ms
             } else {
               console.log("🧪 DEBUG: Quantité cible atteinte dans iframe", {
                 currentQuantity,
@@ -1030,7 +1157,7 @@
 
   // Vérification périodique pour s'assurer que le processus continue
   if (window.self === window.top) {
-    // Exécuter une vérification toutes les 15 secondes pour s'assurer que le processus continue
+    // Exécuter une vérification toutes les 10 secondes pour s'assurer que le processus continue
     const intervalId = setInterval(() => {
       chrome.storage.local.get(
         ["targetQuantity", "currentQuantity", "baseUrl"],
@@ -1063,10 +1190,10 @@
             // Utiliser un délai pour éviter les redirections trop rapides
             setTimeout(() => {
               window.location.href = continueUrl;
-            }, 2000);
+            }, 1000); // Réduit de 2000 à 1000ms
           }
         }
       );
-    }, 15000); // Vérification toutes les 15 secondes
+    }, 10000); // Réduit de 15000 à 10000ms
   }
 })();
