@@ -30,38 +30,55 @@
         "🧪 DEBUG: Vérification de continuation depuis sortie anticipée"
       );
 
-      chrome.storage.local.get(
-        ["targetQuantity", "currentQuantity", "baseUrl"],
-        function (result) {
-          console.log(
-            "🧪 DEBUG: Résultat récupération pour sortie anticipée:",
-            result
-          );
-
-          const storedQuantity = result.currentQuantity || 0;
-          const storedTarget = result.targetQuantity || 1;
-
-          if (storedQuantity < storedTarget && result.baseUrl) {
+      // Ajouter un délai pour s'assurer que la page est complètement chargée
+      setTimeout(() => {
+        chrome.storage.local.get(
+          ["targetQuantity", "currentQuantity", "baseUrl"],
+          function (result) {
             console.log(
-              "🧪 DEBUG: Conditions de continuation satisfaites, continuer les achats"
+              "🧪 DEBUG: Résultat récupération pour sortie anticipée:",
+              result
             );
-            // Forcer le rechargement avec continueShopping=true pour contourner la sortie anticipée
-            const continueUrl = result.baseUrl.includes("?")
-              ? result.baseUrl + "&continueShopping=true"
-              : result.baseUrl + "?continueShopping=true";
 
-            console.log("🧪 DEBUG: Redirection forcée vers:", continueUrl);
+            const storedQuantity = result.currentQuantity || 0;
+            const storedTarget = result.targetQuantity || 1;
 
-            setTimeout(() => {
-              window.location.href = continueUrl;
-            }, 1000);
-          } else {
             console.log(
-              "🧪 DEBUG: Pas de continuation nécessaire ou possible depuis sortie anticipée"
+              `🧪 DEBUG: Progression: ${storedQuantity}/${storedTarget}`
             );
+            sendNote(`🛒 Panier: ${storedQuantity}/${storedTarget} tickets`);
+
+            if (storedQuantity < storedTarget && result.baseUrl) {
+              console.log(
+                "🧪 DEBUG: Conditions de continuation satisfaites, continuer les achats"
+              );
+              sendNote(`🔄 Continuation (${storedQuantity}/${storedTarget})`);
+
+              // Forcer le rechargement avec continueShopping=true pour contourner la sortie anticipée
+              const continueUrl = result.baseUrl.includes("?")
+                ? result.baseUrl + "&continueShopping=true"
+                : result.baseUrl + "?continueShopping=true";
+
+              console.log("🧪 DEBUG: Redirection forcée vers:", continueUrl);
+
+              setTimeout(() => {
+                window.location.href = continueUrl;
+              }, 1000);
+            } else {
+              console.log(
+                "🧪 DEBUG: Pas de continuation nécessaire ou possible depuis sortie anticipée"
+              );
+              if (storedQuantity >= storedTarget) {
+                sendNote(
+                  `✅ Terminé! ${storedTarget} tickets ajoutés au panier`
+                );
+              } else {
+                sendNote("⚠️ Impossible de continuer - URL manquante");
+              }
+            }
           }
-        }
-      );
+        );
+      }, 1500); // Délai de 1.5s pour s'assurer que le DOM est prêt
     }
 
     return; // Sortir immédiatement pour éviter les rafraîchissements infinis
@@ -69,8 +86,10 @@
 
   // Extraire l'URL de base sans les paramètres pour pouvoir y revenir
   if (window.location.href.includes("?date=")) {
-    baseUrl = window.location.href;
+    // Capturer l'URL complète, mais nettoyer les paramètres inutiles
+    baseUrl = window.location.href.replace(/[&?]continueShopping=true/, "");
     console.log("🔗 URL de base enregistrée:", baseUrl);
+
     // Sauvegarder immédiatement dans le stockage
     chrome.storage.local.set({ baseUrl: baseUrl }, function () {
       console.log(
@@ -362,17 +381,43 @@
         url: window.location.href,
       });
 
+      // Récupérer d'abord les valeurs du stockage pour s'assurer qu'elles sont à jour
+      await new Promise((resolve) => {
+        chrome.storage.local.get(
+          ["targetQuantity", "currentQuantity", "baseUrl"],
+          function (result) {
+            console.log(
+              "🧪 DEBUG: Valeurs récupérées avant incrémentation:",
+              result
+            );
+
+            if (result.targetQuantity) targetQuantity = result.targetQuantity;
+            if (result.currentQuantity !== undefined)
+              currentQuantity = result.currentQuantity;
+            if (result.baseUrl) baseUrl = result.baseUrl;
+
+            resolve();
+          }
+        );
+      });
+
       // Incrémenter le compteur et mettre à jour le stockage
       currentQuantity++;
-      chrome.storage.local.set(
-        { currentQuantity: currentQuantity },
-        function () {
-          console.log("🧪 DEBUG: currentQuantity mis à jour:", currentQuantity);
-        }
-      );
+      await new Promise((resolve) => {
+        chrome.storage.local.set(
+          { currentQuantity: currentQuantity },
+          function () {
+            console.log(
+              "🧪 DEBUG: currentQuantity mis à jour:",
+              currentQuantity
+            );
+            resolve();
+          }
+        );
+      });
 
       console.log("📄 page principale load reçue");
-      sendNote(`▶️ Contexte parent (${currentQuantity}/${targetQuantity})`);
+      sendNote(`▶️ Automatisation (${currentQuantity}/${targetQuantity})`);
 
       // Si on vient du panier (continueShopping=true), récupérer l'URL de base
       if (window.location.href.includes("continueShopping=true")) {
@@ -521,11 +566,12 @@
   }
 
   // Fonction pour attendre que le panier se charge après avoir cliqué sur "Add to Cart"
-  async function waitForCart(maxWaitTime = 10000) {
+  async function waitForCart(maxWaitTime = 15000) {
+    // Augmenter le temps d'attente
     const startTime = Date.now();
 
     // Attente initiale pour laisser la page commencer à charger
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 2000));
 
     while (Date.now() - startTime < maxWaitTime) {
       if (
@@ -539,16 +585,37 @@
             "🧪 DEBUG: Sauvegarde de baseUrl dans le panier:",
             baseUrl
           );
-          chrome.storage.local.set({ baseUrl: baseUrl }, function () {
-            console.log("🧪 DEBUG: baseUrl sauvegardée avec succès");
+
+          await new Promise((resolve) => {
+            // Sauvegarder à la fois baseUrl et la progression actuelle
+            chrome.storage.local.set(
+              {
+                baseUrl: baseUrl,
+                currentQuantity: currentQuantity,
+                targetQuantity: targetQuantity,
+              },
+              function () {
+                console.log(
+                  "🧪 DEBUG: baseUrl et progression sauvegardées avec succès",
+                  {
+                    baseUrl,
+                    currentQuantity,
+                    targetQuantity,
+                  }
+                );
+                resolve();
+              }
+            );
           });
-          sendNote("🔗 URL de navigation enregistrée");
+
+          sendNote(`🔗 URL sauvegardée (${currentQuantity}/${targetQuantity})`);
         } else {
           console.warn("⚠️ Pas d'URL de base à sauvegarder dans le panier");
           sendNote("⚠️ Pas d'URL de base disponible");
         }
+
         // Attendre un peu plus pour que la page se charge complètement
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 2500));
         return true;
       }
       await new Promise((r) => setTimeout(r, 500));
@@ -600,7 +667,20 @@
           baseUrl
         );
         sendNote("✅ URL disponible, redirection...");
-        returnToMainPage();
+
+        // Utiliser un délai pour s'assurer que tout est prêt
+        setTimeout(() => {
+          const continueUrl = baseUrl.includes("?")
+            ? baseUrl + "&continueShopping=true"
+            : baseUrl + "?continueShopping=true";
+
+          console.log(
+            "🧪 DEBUG: Redirection depuis continueShopping vers:",
+            continueUrl
+          );
+          window.location.href = continueUrl;
+        }, 1000);
+
         return true;
       }
 
@@ -630,9 +710,17 @@
     } catch (error) {
       console.error("❌ Erreur lors de la continuation des achats:", error);
       sendNote("❌ Erreur: " + error.message);
+
       // Fallback: retour direct à l'URL de base si disponible
       if (baseUrl) {
-        returnToMainPage();
+        setTimeout(() => {
+          const continueUrl = baseUrl.includes("?")
+            ? baseUrl + "&continueShopping=true"
+            : baseUrl + "?continueShopping=true";
+
+          console.log("🧪 DEBUG: Redirection de secours vers:", continueUrl);
+          window.location.href = continueUrl;
+        }, 1000);
         return true;
       }
       return false;
@@ -642,11 +730,23 @@
   if (window.self === window.top) {
     // === Code qui tourne dans la page parente ===
     window.addEventListener("load", async () => {
-      // Vérifier si on est sur la page du panier et qu'on doit continuer les achats
-      if (
+      // Vérifier si le panier est déjà ouvert
+      const isCart =
         window.location.href.includes("/checkout") ||
-        window.location.href.includes("cart=1")
-      ) {
+        window.location.href.includes("cart=1");
+
+      // Continuation depuis le panier détectée
+      const isContinuation = window.location.href.includes(
+        "continueShopping=true"
+      );
+
+      console.log("🧪 DEBUG: Détection de contexte:", {
+        isCart,
+        isContinuation,
+      });
+
+      // Vérifier si on est sur la page du panier et qu'on doit continuer les achats
+      if (isCart) {
         console.log("🧪 DEBUG: Détection du panier", {
           baseUrl,
           currentQuantity,
@@ -681,8 +781,23 @@
               sendNote(
                 `🔄 Continuation (${currentQuantity}/${targetQuantity})`
               );
-              const result = await continueShopping();
-              console.log("🧪 DEBUG: Résultat de continueShopping:", result);
+
+              // Délai pour s'assurer que tout est chargé
+              await new Promise((r) => setTimeout(r, 1500));
+
+              // Si baseUrl est défini, naviguer directement
+              if (baseUrl) {
+                console.log("🧪 DEBUG: Redirection directe avec baseUrl");
+                const continueUrl = baseUrl.includes("?")
+                  ? baseUrl + "&continueShopping=true"
+                  : baseUrl + "?continueShopping=true";
+
+                window.location.href = continueUrl;
+              } else {
+                // Sinon, essayer de continuer via les boutons
+                const result = await continueShopping();
+                console.log("🧪 DEBUG: Résultat de continueShopping:", result);
+              }
             } else {
               console.log(
                 "✅ Automatisation terminée, reste sur la page du panier"
@@ -823,11 +938,17 @@
               }
             }
 
+            // Ajouter un délai plus long après le clic sur "Add to Cart"
+            if (addToCartClicked || /* alternatives */ true) {
+              console.log("🧪 DEBUG: Attente prolongée après Add to Cart");
+              await new Promise((r) => setTimeout(r, 5000)); // Délai plus long
+            }
+
             // Vérifier s'il y a une alerte de chevauchement de temps et la gérer
             await handleTimeOverlapAlert();
 
-            // Attendre que le panier se charge
-            const cartLoaded = await waitForCart();
+            // Attendre que le panier se charge avec un délai plus long
+            const cartLoaded = await waitForCart(20000); // 20 secondes d'attente max
             console.log("🧪 DEBUG: Résultat de waitForCart:", cartLoaded);
 
             // Vérifier s'il faut continuer les achats
@@ -876,7 +997,7 @@
                     }
                   }
                 );
-              }, 2000);
+              }, 3000); // Délai plus long avant la redirection
             } else {
               console.log("🧪 DEBUG: Quantité cible atteinte dans iframe", {
                 currentQuantity,
@@ -906,4 +1027,46 @@
       sendResponse({ success: true });
     }
   });
+
+  // Vérification périodique pour s'assurer que le processus continue
+  if (window.self === window.top) {
+    // Exécuter une vérification toutes les 15 secondes pour s'assurer que le processus continue
+    const intervalId = setInterval(() => {
+      chrome.storage.local.get(
+        ["targetQuantity", "currentQuantity", "baseUrl"],
+        function (result) {
+          console.log("🧪 DEBUG: Vérification périodique:", result);
+
+          // Si on est dans un panier, on doit peut-être continuer
+          const isCart =
+            window.location.href.includes("/checkout") ||
+            window.location.href.includes("cart=1");
+
+          if (
+            isCart &&
+            result.currentQuantity < result.targetQuantity &&
+            result.baseUrl &&
+            !window.location.href.includes("continueShopping=true")
+          ) {
+            console.log(
+              "🧪 DEBUG: Redirection nécessaire détectée par vérification périodique"
+            );
+            sendNote(
+              `⏱️ Continuation automatique (${result.currentQuantity}/${result.targetQuantity})`
+            );
+
+            // Rediriger vers la page principale
+            const continueUrl = result.baseUrl.includes("?")
+              ? result.baseUrl + "&continueShopping=true"
+              : result.baseUrl + "?continueShopping=true";
+
+            // Utiliser un délai pour éviter les redirections trop rapides
+            setTimeout(() => {
+              window.location.href = continueUrl;
+            }, 2000);
+          }
+        }
+      );
+    }, 15000); // Vérification toutes les 15 secondes
+  }
 })();
