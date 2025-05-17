@@ -7,10 +7,20 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
 
-  // Charger la quantité enregistrée
-  chrome.storage.local.get("targetQuantity", (data) => {
+  // Charger les valeurs enregistrées
+  chrome.storage.local.get(["targetQuantity", "selectedTime"], (data) => {
     if (data.targetQuantity) {
       document.getElementById("quantityInput").value = data.targetQuantity;
+    }
+    if (data.selectedTime) {
+      const timeSelect = document.getElementById("timeSelect");
+      // Trouver l'option correspondante ou utiliser la valeur par défaut
+      const option = Array.from(timeSelect.options).find(
+        (opt) => opt.value === data.selectedTime
+      );
+      if (option) {
+        timeSelect.value = data.selectedTime;
+      }
     }
   });
 
@@ -35,6 +45,10 @@ document.addEventListener("DOMContentLoaded", () => {
       10
     );
 
+    // Obtenir l'horaire sélectionné
+    const selectedTime = document.getElementById("timeSelect").value;
+    console.log("Horaire sélectionné:", selectedTime);
+
     // Valider la quantité
     if (isNaN(quantity) || quantity < 1 || quantity > 10) {
       console.warn("Quantité invalide");
@@ -43,13 +57,16 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Enregistrer la quantité
-    chrome.storage.local.set({ targetQuantity: quantity });
-    console.log("Quantité enregistrée:", quantity);
+    // Enregistrer la quantité et l'horaire
+    chrome.storage.local.set({
+      selectedTime: selectedTime,
+      targetQuantity: quantity,
+    });
+    console.log("Paramètres enregistrés:", { quantity, selectedTime });
 
     if (!/^\d{6}$/.test(input)) {
       console.warn("Format invalide");
-      document.getElementById("status").textContent = "Format invalide";
+      document.getElementById("status").textContent = "Format de date invalide";
       return;
     }
 
@@ -70,10 +87,12 @@ document.addEventListener("DOMContentLoaded", () => {
       yyyy = date.getFullYear();
     const url = `https://www.cityexperiences.com/san-francisco/city-cruises/alcatraz/tour-options/alcatraz-day-tour/?date=${mm}/${dd}/${yyyy}`;
 
-    console.log(`→ Ouvrir onglet: ${url} (Quantité: ${quantity})`);
+    console.log(
+      `→ Ouvrir onglet: ${url} (Quantité: ${quantity}, Horaire: ${selectedTime})`
+    );
     document.getElementById(
       "status"
-    ).textContent = `Lancement automatisation (${quantity} fois)...`;
+    ).textContent = `Lancement automatisation: ${quantity} tickets à ${selectedTime}...`;
 
     chrome.tabs.create({ url }, (tab) => {
       if (chrome.runtime.lastError) {
@@ -84,11 +103,12 @@ document.addEventListener("DOMContentLoaded", () => {
         // Après création de l'onglet, attendre qu'il soit complètement chargé
         chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
           if (tabId === tab.id && changeInfo.status === "complete") {
-            // Envoyer la quantité au content script
+            // Envoyer les paramètres au content script
             setTimeout(() => {
               chrome.tabs.sendMessage(tab.id, {
                 quantity: quantity,
-                type: "SET_QUANTITY",
+                selectedTime: selectedTime,
+                type: "SET_PARAMS",
               });
             }, 1000);
 

@@ -6,10 +6,11 @@
       body {
         font-family: sans-serif;
         padding: 10px;
-        width: 200px;
+        width: 300px;
       }
       input,
-      button {
+      button,
+      select {
         font-size: 14px;
         margin-top: 8px;
         width: 100%;
@@ -17,11 +18,32 @@
       .form-group {
         margin-bottom: 10px;
       }
+      h2 {
+        color: #333;
+        font-size: 16px;
+        margin-bottom: 5px;
+        margin-top: 15px;
+      }
+      .time-selector {
+        background-color: #f9f9f9;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 6px;
+      }
+      #status {
+        background-color: #f0f8ff;
+        border-left: 3px solid #0066cc;
+        color: #333;
+        margin-top: 10px;
+        min-height: 20px;
+        padding: 8px;
+      }
     </style>
   </head>
   <body>
+    <h2>Date</h2>
     <div class="form-group">
-      <label for="dateInput">Date (DDMMAA) :</label>
+      <label for="dateInput">Format DDMMAA:</label>
       <!-- <input id="dateInput" maxlength="6" placeholder="ex. 030725" /> -->
       <input
         id="dateInput"
@@ -31,13 +53,35 @@
       />
     </div>
 
+    <h2>Horaire</h2>
     <div class="form-group">
-      <label for="quantityInput">Quantité :</label>
+      <label for="timeSelect">Sélectionner un horaire:</label>
+      <select class="time-selector" id="timeSelect">
+        <option value="9:20 AM">9:20 AM (Morning)</option>
+        <option selected value="9:40 AM">9:40 AM (Morning)</option>
+        <option value="10:10 AM">10:10 AM (Morning)</option>
+        <option value="10:35 AM">10:35 AM (Morning)</option>
+        <option value="11:00 AM">11:00 AM (Morning)</option>
+        <option value="11:30 AM">11:30 AM (Late Morning)</option>
+        <option value="12:00 PM">12:00 PM (Noon)</option>
+        <option value="12:30 PM">12:30 PM (Early Afternoon)</option>
+        <option value="1:05 PM">1:05 PM (Afternoon)</option>
+        <option value="1:35 PM">1:35 PM (Afternoon)</option>
+        <option value="2:15 PM">2:15 PM (Afternoon)</option>
+        <option value="2:45 PM">2:45 PM (Late Afternoon)</option>
+        <option value="3:20 PM">3:20 PM (Late Afternoon)</option>
+        <option value="3:50 PM">3:50 PM (Late Afternoon)</option>
+      </select>
+    </div>
+
+    <h2>Quantité</h2>
+    <div class="form-group">
+      <label for="quantityInput">Nombre de tickets:</label>
       <input id="quantityInput" max="10" min="1" type="number" value="1" />
     </div>
 
     <button id="go">Lancer l'automatisation</button>
-    <div id="status" style="margin-top: 8px; color: red"></div>
+    <div id="status">Prêt à démarrer</div>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -11,13 +11,77 @@
   let targetQuantity = 1; // Nombre par défaut, sera mis à jour par le popup
   let currentQuantity = 0; // Compteur actuel
   let baseUrl = ""; // URL de base pour revenir à la page principale
+  let selectedTime = "9:40 AM"; // Horaire par défaut, sera mis à jour par le popup
 
   // Fonction pour compter les tickets dans le panier
   async function countCartItems() {
     try {
       console.log("🧮 Comptage des tickets dans le panier");
 
-      // Chercher différents sélecteurs possibles pour les articles du panier
+      // Vérifier d'abord le sélecteur exact indiqué par l'utilisateur
+      const cartIndicator = document.querySelector("span.cart-item.has-item");
+      if (cartIndicator) {
+        // Extraire le nombre du texte
+        const itemCount = parseInt(cartIndicator.textContent.trim());
+        if (!isNaN(itemCount)) {
+          console.log(
+            `🧮 ${itemCount} articles trouvés avec le sélecteur exact span.cart-item.has-item`
+          );
+
+          // Mettre à jour le compteur interne pour correspondre au panier
+          if (itemCount !== currentQuantity) {
+            console.log(
+              `🧮 Mise à jour du compteur: ${currentQuantity} → ${itemCount}`
+            );
+            currentQuantity = itemCount;
+            chrome.storage.local.set({ currentQuantity: itemCount });
+          }
+
+          return itemCount;
+        }
+      }
+
+      // Chercher des sélecteurs spécifiques au panier d'Alcatraz
+      const specificSelectors = [
+        "span.cart-item",
+        "[class*='cart-item']",
+        "[class*='cartItem']",
+        ".cart-count",
+        ".cart-quantity",
+        "span.count",
+        "[class*='cart'] .count",
+        "[class*='cart'] .quantity",
+      ];
+
+      for (const selector of specificSelectors) {
+        const elements = document.querySelectorAll(selector);
+        for (const el of elements) {
+          const text = el.textContent.trim();
+          // Chercher un nombre dans le texte
+          const match = text.match(/\d+/);
+          if (match && match[0]) {
+            const count = parseInt(match[0]);
+            if (!isNaN(count)) {
+              console.log(
+                `🧮 ${count} articles trouvés avec le sélecteur spécifique: ${selector}`
+              );
+
+              // Mettre à jour le compteur
+              if (count !== currentQuantity) {
+                console.log(
+                  `🧮 Mise à jour du compteur: ${currentQuantity} → ${count}`
+                );
+                currentQuantity = count;
+                chrome.storage.local.set({ currentQuantity: count });
+              }
+
+              return count;
+            }
+          }
+        }
+      }
+
+      // Si aucun des sélecteurs spécifiques ne fonctionne, continuer avec les sélecteurs génériques
       const selectors = [
         // Sélecteurs génériques pour les articles du panier
         ".cart-item",
@@ -168,7 +232,7 @@
         const cartCount = await countCartItems();
 
         chrome.storage.local.get(
-          ["targetQuantity", "baseUrl"],
+          ["targetQuantity", "baseUrl", "selectedTime"],
           function (result) {
             console.log(
               "🧪 DEBUG: Résultat récupération pour sortie anticipée:",
@@ -176,11 +240,14 @@
             );
 
             const storedTarget = result.targetQuantity || 1;
+            if (result.selectedTime) selectedTime = result.selectedTime;
 
             console.log(
-              `🧪 DEBUG: Progression réelle: ${cartCount}/${storedTarget}`
+              `🧪 DEBUG: Progression réelle: ${cartCount}/${storedTarget} (${selectedTime})`
             );
-            sendNote(`🛒 Panier: ${cartCount}/${storedTarget} tickets`);
+            sendNote(
+              `🛒 Panier: ${cartCount}/${storedTarget} tickets (${selectedTime})`
+            );
 
             if (cartCount < storedTarget && result.baseUrl) {
               console.log(
@@ -195,7 +262,7 @@
 
               setTimeout(() => {
                 window.location.href = continueUrl;
-              }, 500); // Réduit de 1000 à 500ms
+              }, 500);
             } else {
               console.log(
                 "🧪 DEBUG: Pas de continuation nécessaire ou possible depuis sortie anticipée"
@@ -225,7 +292,7 @@
 
   // Essayer de récupérer les valeurs stockées
   chrome.storage.local.get(
-    ["targetQuantity", "currentQuantity", "baseUrl"],
+    ["targetQuantity", "currentQuantity", "baseUrl", "selectedTime"],
     function (result) {
       if (result.targetQuantity) {
         targetQuantity = result.targetQuantity;
@@ -238,6 +305,10 @@
       if (result.baseUrl) {
         baseUrl = result.baseUrl;
         console.log("🔗 URL de base récupérée:", baseUrl);
+      }
+      if (result.selectedTime) {
+        selectedTime = result.selectedTime;
+        console.log("🕒 Horaire sélectionné:", selectedTime);
       }
     }
   );
@@ -509,7 +580,7 @@
       // Récupérer d'abord les valeurs du stockage pour s'assurer qu'elles sont à jour
       await new Promise((resolve) => {
         chrome.storage.local.get(
-          ["targetQuantity", "currentQuantity", "baseUrl"],
+          ["targetQuantity", "currentQuantity", "baseUrl", "selectedTime"],
           function (result) {
             console.log(
               "🧪 DEBUG: Valeurs récupérées avant incrémentation:",
@@ -520,6 +591,7 @@
             if (result.currentQuantity !== undefined)
               currentQuantity = result.currentQuantity;
             if (result.baseUrl) baseUrl = result.baseUrl;
+            if (result.selectedTime) selectedTime = result.selectedTime;
 
             resolve();
           }
@@ -692,11 +764,10 @@
 
   // Fonction pour attendre que le panier se charge après avoir cliqué sur "Add to Cart"
   async function waitForCart(maxWaitTime = 10000) {
-    // Réduit de 15000 à 10000ms
     const startTime = Date.now();
 
     // Attente initiale pour laisser la page commencer à charger
-    await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
+    await new Promise((r) => setTimeout(r, 1000));
 
     while (Date.now() - startTime < maxWaitTime) {
       if (
@@ -720,34 +791,35 @@
             chrome.storage.local.set(
               {
                 baseUrl: baseUrl,
-                currentQuantity: cartCount, // Utiliser le nombre réel d'articles
+                currentQuantity: cartCount,
+                selectedTime: selectedTime,
                 targetQuantity: targetQuantity,
               },
               function () {
-                console.log(
-                  "🧪 DEBUG: baseUrl et progression sauvegardées avec succès",
-                  {
-                    baseUrl,
-                    currentQuantity: cartCount,
-                    targetQuantity,
-                  }
-                );
+                console.log("🧪 DEBUG: variables sauvegardées avec succès", {
+                  baseUrl,
+                  currentQuantity: cartCount,
+                  selectedTime,
+                  targetQuantity,
+                });
                 resolve();
               }
             );
           });
 
-          sendNote(`🔗 URL sauvegardée (${cartCount}/${targetQuantity})`);
+          sendNote(
+            `🔗 URL sauvegardée (${cartCount}/${targetQuantity}, ${selectedTime})`
+          );
         } else {
           console.warn("⚠️ Pas d'URL de base à sauvegarder dans le panier");
           sendNote("⚠️ Pas d'URL de base disponible");
         }
 
         // Attendre un peu plus pour que la page se charge complètement
-        await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2500 à 1000ms
+        await new Promise((r) => setTimeout(r, 1000));
         return true;
       }
-      await new Promise((r) => setTimeout(r, 300)); // Réduit de 500 à 300ms
+      await new Promise((r) => setTimeout(r, 300));
     }
     console.warn(
       "⚠️ Page de panier non détectée après " + maxWaitTime / 1000 + " secondes"
@@ -879,30 +951,61 @@
         console.log("🧪 DEBUG: Détection du panier", {
           baseUrl,
           currentQuantity,
+          selectedTime,
           targetQuantity,
           url: window.location.href,
         });
         sendNote("🧪 DEBUG: Page panier détectée");
 
-        // Compter les tickets dans le panier
+        // Compter les tickets dans le panier - Vérification double avec comptage forcé
         const cartCount = await countCartItems();
 
         // Récupérer les données actuelles du stockage
         chrome.storage.local.get(
-          ["targetQuantity", "baseUrl"],
+          ["targetQuantity", "baseUrl", "selectedTime"],
           async function (result) {
             console.log("🧪 DEBUG: Valeurs récupérées du stockage:", result);
 
             if (result.targetQuantity) targetQuantity = result.targetQuantity;
             if (result.baseUrl) baseUrl = result.baseUrl;
+            if (result.selectedTime) selectedTime = result.selectedTime;
 
             console.log("📊 État dans le panier: ", {
               baseUrl,
               cartCount,
+              selectedTime,
               targetQuantity,
             });
-            sendNote(`📊 Panier: ${cartCount}/${targetQuantity}`);
+            sendNote(
+              `📊 Panier: ${cartCount}/${targetQuantity} tickets (${selectedTime})`
+            );
 
+            // Vérification stricte: si le panier a au moins autant de tickets que notre cible, terminer
+            if (cartCount >= targetQuantity) {
+              console.log(
+                "✅ Quantité cible atteinte ou dépassée dans le panier:",
+                cartCount
+              );
+              sendNote(
+                `✅ Terminé! ${cartCount}/${targetQuantity} tickets ajoutés au panier (${selectedTime})`
+              );
+
+              // Réinitialiser le compteur pour la prochaine fois
+              chrome.storage.local.set({
+                currentQuantity: 0,
+                // Enregistrer le nombre réel d'articles pour référence
+                lastCompletedRun: {
+                  count: cartCount,
+                  date: new Date().toISOString(),
+                  targetQuantity: targetQuantity,
+                  time: selectedTime,
+                },
+              });
+
+              return; // Sortir immédiatement
+            }
+
+            // Si nous n'avons pas encore atteint la cible
             if (cartCount < targetQuantity) {
               // On est sur la page du panier mais on n'a pas fini
               console.log(
@@ -911,7 +1014,7 @@
               sendNote(`🔄 Continuation (${cartCount}/${targetQuantity})`);
 
               // Délai pour s'assurer que tout est chargé
-              await new Promise((r) => setTimeout(r, 800)); // Réduit de 1500 à 800ms
+              await new Promise((r) => setTimeout(r, 800));
 
               // Si baseUrl est défini, naviguer directement
               if (baseUrl) {
@@ -931,7 +1034,7 @@
                 "✅ Automatisation terminée, reste sur la page du panier"
               );
               sendNote(
-                `✅ Terminé! ${targetQuantity} tickets ajoutés au panier`
+                `✅ Terminé! ${targetQuantity} tickets ajoutés au panier (${selectedTime})`
               );
               // Réinitialiser le compteur pour la prochaine fois
               chrome.storage.local.set({ currentQuantity: 0 });
@@ -955,7 +1058,7 @@
 
       await new Promise((resolve) => {
         chrome.storage.local.get(
-          ["baseUrl", "currentQuantity", "targetQuantity"],
+          ["baseUrl", "currentQuantity", "targetQuantity", "selectedTime"],
           function (result) {
             console.log("🧪 DEBUG: Données récupérées dans l'iframe:", result);
 
@@ -967,10 +1070,12 @@
             if (result.currentQuantity)
               currentQuantity = result.currentQuantity;
             if (result.targetQuantity) targetQuantity = result.targetQuantity;
+            if (result.selectedTime) selectedTime = result.selectedTime;
 
             console.log("🧪 DEBUG: État dans l'iframe:", {
               baseUrl,
               currentQuantity,
+              selectedTime,
               targetQuantity,
             });
 
@@ -980,7 +1085,7 @@
       });
 
       // délai pour que les créneaux apparaissent
-      await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
+      await new Promise((r) => setTimeout(r, 1000));
 
       // Afficher les créneaux disponibles
       const slotButtons = getAllTimeSlotButtons();
@@ -989,6 +1094,11 @@
           .map((btn) => btn.innerText.replace(/\n/g, " | "))
           .join(" || ");
         sendNote("Créneaux trouvés : " + slotsText);
+
+        // Afficher les créneaux disponibles dans la console pour débogage
+        slotButtons.forEach((btn, index) => {
+          console.log(`Créneau ${index + 1}:`, btn.innerText.trim());
+        });
       } else {
         sendNote("Aucun bouton de créneau horaire trouvé");
 
@@ -1000,16 +1110,16 @@
         });
       }
 
-      // Attendre et cliquer sur "10:10 AM"
+      // Attendre et cliquer sur l'horaire sélectionné
       try {
-        console.log("⏳ Recherche du créneau '10:10 AM'...");
-        const slotBtn = await waitForButtonWithText("10:10 AM", 15000, 300); // Réduit interval de 500 à 300ms
+        console.log(`⏳ Recherche du créneau '${selectedTime}'...`);
+        const slotBtn = await waitForButtonWithText(selectedTime, 15000, 300);
         slotBtn.click();
-        console.log("✅ Bouton '10:10 AM' cliqué (iframe)");
-        sendNote("✅ Bouton '10:10 AM' cliqué (iframe)");
+        console.log(`✅ Bouton '${selectedTime}' cliqué (iframe)`);
+        sendNote(`✅ Bouton '${selectedTime}' cliqué (iframe)`);
 
         // attendre puis incrémenter (si besoin)
-        await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
+        await new Promise((r) => setTimeout(r, 1000));
         const incBtnIframe = document.querySelector(
           'button.jss1250.jss1337.jss1339.btnBackgroundColor.quantityIconStyle.jss1330[data-bdd="increment-button"]'
         );
@@ -1019,15 +1129,15 @@
           sendNote("✅ Bouton d'incrément cliqué (iframe)");
 
           // Attendre puis cliquer sur "Continue"
-          await new Promise((r) => setTimeout(r, 1000)); // Réduit de 2000 à 1000ms
+          await new Promise((r) => setTimeout(r, 1000));
           const continueClicked = await findAndClickButtonByText(
             "Continue",
-            8000 // Réduit de 10000 à 8000ms
+            8000
           );
 
           if (continueClicked) {
             // Attendre que la page se charge avant de chercher "Add to Cart"
-            await new Promise((r) => setTimeout(r, 2000)); // Réduit de 3000 à 2000ms
+            await new Promise((r) => setTimeout(r, 2000));
 
             // Vérifier et sauvegarder l'URL de base dans le stockage si elle n'est pas vide
             if (baseUrl) {
@@ -1037,12 +1147,18 @@
               );
 
               await new Promise((resolve) => {
-                chrome.storage.local.set({ baseUrl: baseUrl }, function () {
-                  console.log(
-                    "🧪 DEBUG: baseUrl sauvegardée avec succès avant Add to Cart"
-                  );
-                  resolve();
-                });
+                chrome.storage.local.set(
+                  {
+                    baseUrl: baseUrl,
+                    selectedTime: selectedTime,
+                  },
+                  function () {
+                    console.log(
+                      "🧪 DEBUG: baseUrl et selectedTime sauvegardées avant Add to Cart"
+                    );
+                    resolve();
+                  }
+                );
               });
             } else {
               console.warn(
@@ -1054,28 +1170,26 @@
             // Rechercher et cliquer sur "Add to Cart"
             const addToCartClicked = await findAndClickButtonByText(
               "Add to Cart",
-              8000 // Réduit de 10000 à 8000ms
+              8000
             );
 
             // Alternatives si "Add to Cart" n'est pas trouvé
             if (!addToCartClicked) {
               if (!(await findAndClickButtonByText("Add to cart", 800))) {
-                // Réduit de 1000 à 800ms
                 if (!(await findAndClickButtonByText("Add to Bag", 800))) {
-                  // Réduit de 1000 à 800ms
-                  await findAndClickButtonByText("Purchase", 800); // Réduit de 1000 à 800ms
+                  await findAndClickButtonByText("Purchase", 800);
                 }
               }
             }
 
             // Ajouter un délai plus court après le clic sur "Add to Cart"
-            await new Promise((r) => setTimeout(r, 3000)); // Réduit de 5000 à 3000ms
+            await new Promise((r) => setTimeout(r, 3000));
 
             // Vérifier s'il y a une alerte de chevauchement de temps et la gérer
-            await handleTimeOverlapAlert(10000); // Réduit de 20000 à 10000ms
+            await handleTimeOverlapAlert(10000);
 
             // Attendre que le panier se charge avec un délai plus court
-            const cartLoaded = await waitForCart(12000); // Réduit de 20000 à 12000ms
+            const cartLoaded = await waitForCart(12000);
             console.log("🧪 DEBUG: Résultat de waitForCart:", cartLoaded);
 
             // Vérifier s'il faut continuer les achats
@@ -1083,6 +1197,7 @@
               console.log("🧪 DEBUG: Continuation nécessaire depuis iframe:", {
                 baseUrl,
                 currentQuantity,
+                selectedTime,
                 targetQuantity,
               });
 
@@ -1097,6 +1212,7 @@
                   {
                     baseUrl: baseUrl,
                     currentQuantity: currentQuantity,
+                    selectedTime: selectedTime,
                     targetQuantity: targetQuantity,
                   },
                   function () {
@@ -1124,76 +1240,146 @@
                     }
                   }
                 );
-              }, 1500); // Réduit de 3000 à 1500ms
+              }, 1500);
             } else {
               console.log("🧪 DEBUG: Quantité cible atteinte dans iframe", {
                 currentQuantity,
+                selectedTime,
                 targetQuantity,
               });
             }
           }
         }
       } catch (err) {
-        console.warn("❌ Créneau '10:10 AM' non trouvé après 20 s (iframe)");
-        sendNote("❌ Créneau '10:10 AM' non trouvé après 20 s (iframe)");
+        console.warn(
+          `❌ Créneau '${selectedTime}' non trouvé après 15s (iframe)`
+        );
+        sendNote(`❌ Créneau '${selectedTime}' non trouvé après 15s (iframe)`);
+
+        // Essayer de trouver n'importe quel créneau disponible comme fallback
+        try {
+          console.log(
+            "🔍 Tentative de trouver n'importe quel créneau disponible..."
+          );
+          const anySlotButton = slotButtons.find((btn) => !btn.disabled);
+
+          if (anySlotButton) {
+            const fallbackTime = anySlotButton.innerText.trim().split("\n")[0];
+            console.log(
+              `⚠️ Utilisation du créneau alternatif: ${fallbackTime}`
+            );
+            sendNote(`⚠️ Utilisation du créneau alternatif: ${fallbackTime}`);
+
+            anySlotButton.click();
+            // Continuer avec le reste du processus...
+          } else {
+            console.error("❌ Aucun créneau disponible trouvé");
+            sendNote("❌ Aucun créneau disponible trouvé");
+          }
+        } catch (fallbackErr) {
+          console.error(
+            "❌ Échec de la recherche de créneaux alternatifs:",
+            fallbackErr
+          );
+        }
       }
     });
   }
 
   // Écouter les messages du popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === "SET_QUANTITY") {
+    if (message.type === "SET_PARAMS") {
       targetQuantity = message.quantity;
+      if (message.selectedTime) {
+        selectedTime = message.selectedTime;
+      }
+
       // Réinitialiser le compteur quand on définit une nouvelle quantité
       currentQuantity = 0;
       chrome.storage.local.set({
         currentQuantity: 0,
+        selectedTime: selectedTime,
         targetQuantity: message.quantity,
       });
-      console.log(`📊 Quantité cible mise à jour: ${targetQuantity}`);
+      console.log(
+        `📊 Paramètres mis à jour: ${targetQuantity} tickets à ${selectedTime}`
+      );
       sendResponse({ success: true });
     }
   });
 
-  // Vérification périodique pour s'assurer que le processus continue
+  // Vérification périodique pour s'assurer que le processus continue ou s'arrête correctement
   if (window.self === window.top) {
-    // Exécuter une vérification toutes les 10 secondes pour s'assurer que le processus continue
-    const intervalId = setInterval(() => {
-      chrome.storage.local.get(
-        ["targetQuantity", "currentQuantity", "baseUrl"],
-        function (result) {
-          console.log("🧪 DEBUG: Vérification périodique:", result);
+    // Exécuter une vérification toutes les 10 secondes
+    const intervalId = setInterval(async () => {
+      // Si on est sur la page du panier, vérifier si on a atteint notre cible
+      const isCart =
+        window.location.href.includes("/checkout") ||
+        window.location.href.includes("cart=1");
 
-          // Si on est dans un panier, on doit peut-être continuer
-          const isCart =
-            window.location.href.includes("/checkout") ||
-            window.location.href.includes("cart=1");
+      if (isCart) {
+        // Compter les tickets dans le panier
+        const cartCount = await countCartItems();
 
-          if (
-            isCart &&
-            result.currentQuantity < result.targetQuantity &&
-            result.baseUrl &&
-            !window.location.href.includes("continueShopping=true")
-          ) {
-            console.log(
-              "🧪 DEBUG: Redirection nécessaire détectée par vérification périodique"
-            );
-            sendNote(
-              `⏱️ Continuation automatique (${result.currentQuantity}/${result.targetQuantity})`
-            );
+        chrome.storage.local.get(
+          ["targetQuantity", "baseUrl", "selectedTime"],
+          function (result) {
+            console.log("🧪 DEBUG: Vérification périodique:", {
+              atteint: cartCount >= result.targetQuantity,
+              cartCount,
+              targetQuantity: result.targetQuantity,
+            });
 
-            // Rediriger vers la page principale
-            const continueUrl = result.baseUrl.includes("?")
-              ? result.baseUrl + "&continueShopping=true"
-              : result.baseUrl + "?continueShopping=true";
+            // Si on a atteint ou dépassé notre cible, s'arrêter
+            if (cartCount >= result.targetQuantity) {
+              console.log(
+                "✅ Vérification périodique: cible atteinte, arrêt de l'automatisation"
+              );
+              sendNote(
+                `✅ Terminé! ${cartCount}/${result.targetQuantity} tickets dans le panier`
+              );
 
-            // Utiliser un délai pour éviter les redirections trop rapides
-            setTimeout(() => {
-              window.location.href = continueUrl;
-            }, 1000); // Réduit de 2000 à 1000ms
+              // Réinitialiser le compteur
+              chrome.storage.local.set({
+                currentQuantity: 0,
+                // Enregistrer le nombre réel d'articles pour référence
+                lastCompletedRun: {
+                  count: cartCount,
+                  date: new Date().toISOString(),
+                  targetQuantity: result.targetQuantity,
+                  time: result.selectedTime,
+                },
+              });
+
+              return; // Ne pas continuer
+            }
+
+            // Si on n'a pas atteint la cible et qu'on n'est pas en train de continuer, rediriger
+            if (
+              cartCount < result.targetQuantity &&
+              result.baseUrl &&
+              !window.location.href.includes("continueShopping=true")
+            ) {
+              console.log(
+                "🧪 DEBUG: Redirection nécessaire détectée par vérification périodique"
+              );
+              sendNote(
+                `⏱️ Continuation automatique (${cartCount}/${result.targetQuantity})`
+              );
+
+              // Rediriger vers la page principale
+              const continueUrl = result.baseUrl.includes("?")
+                ? result.baseUrl + "&continueShopping=true"
+                : result.baseUrl + "?continueShopping=true";
+
+              // Utiliser un délai pour éviter les redirections trop rapides
+              setTimeout(() => {
+                window.location.href = continueUrl;
+              }, 1000);
+            }
           }
-        }
-      );
-    }, 10000); // Réduit de 15000 à 10000ms
+        );
+      }
+    }, 10000);
   }
 })();
