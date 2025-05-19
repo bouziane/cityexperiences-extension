@@ -38,25 +38,36 @@
         min-height: 20px;
         padding: 8px;
       }
+      .quantity-controls {
+        display: flex;
+        justify-content: space-between;
+      }
+      .quantity-controls input {
+        width: 48%;
+      }
+      .info-text {
+        color: #666;
+        font-size: 12px;
+        font-style: italic;
+        margin-top: 3px;
+      }
     </style>
   </head>
   <body>
     <h2>Date</h2>
     <div class="form-group">
       <label for="dateInput">Format DDMMAA:</label>
-      <!-- <input id="dateInput" maxlength="6" placeholder="ex. 030725" /> -->
-      <input
-        id="dateInput"
-        maxlength="6"
-        placeholder="ex. 030725"
-        value="040825"
-      />
+      <input id="dateInput" maxlength="6" placeholder="ex. 030725" />
+      <div class="info-text">
+        Date au format jour/mois/année (ex: 040825 pour 4 août 2025)
+      </div>
     </div>
 
     <h2>Horaire</h2>
     <div class="form-group">
       <label for="timeSelect">Sélectionner un horaire:</label>
       <select class="time-selector" id="timeSelect">
+        <option value="8:40 AM">8:40 AM (Morning)</option>
         <option value="9:20 AM">9:20 AM (Morning)</option>
         <option selected value="9:40 AM">9:40 AM (Morning)</option>
         <option value="10:10 AM">10:10 AM (Morning)</option>
@@ -74,10 +85,29 @@
       </select>
     </div>
 
-    <h2>Quantité</h2>
+    <h2>Quantités</h2>
     <div class="form-group">
-      <label for="quantityInput">Nombre de tickets:</label>
-      <input id="quantityInput" max="10" min="1" type="number" value="1" />
+      <div class="quantity-controls">
+        <input id="quantityInput" max="20" min="1" type="number" value="1" />
+        <input
+          id="ticketsPerIteration"
+          max="5"
+          min="1"
+          type="number"
+          value="1"
+        />
+      </div>
+      <div
+        class="quantity-labels"
+        style="display: flex; justify-content: space-between"
+      >
+        <span>Total tickets</span>
+        <span>Tickets par itération</span>
+      </div>
+      <div class="info-text">
+        Le script ajoutera le nombre de tickets spécifié à chaque itération
+        jusqu'à atteindre le total
+      </div>
     </div>
 
     <button id="go">Lancer l'automatisation</button>

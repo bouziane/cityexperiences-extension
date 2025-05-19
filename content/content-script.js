@@ -8,10 +8,12 @@
   );
 
   // Variables configurables
-  let targetQuantity = 1; // Nombre par défaut, sera mis à jour par le popup
+  let targetQuantity = 1; // Nombre total de tickets à obtenir
   let currentQuantity = 0; // Compteur actuel
   let baseUrl = ""; // URL de base pour revenir à la page principale
   let selectedTime = "9:40 AM"; // Horaire par défaut, sera mis à jour par le popup
+  let ticketsPerIteration = 1; // Nombre de tickets à ajouter à chaque itération
+  let totalTicketsAdded = 0; // Nombre total de tickets ajoutés (tous lots confondus)
 
   // Fonction pour compter les tickets dans le panier
   async function countCartItems() {
@@ -232,7 +234,7 @@
         const cartCount = await countCartItems();
 
         chrome.storage.local.get(
-          ["targetQuantity", "baseUrl", "selectedTime"],
+          ["targetQuantity", "baseUrl", "selectedTime", "ticketsPerIteration"],
           function (result) {
             console.log(
               "🧪 DEBUG: Résultat récupération pour sortie anticipée:",
@@ -241,9 +243,11 @@
 
             const storedTarget = result.targetQuantity || 1;
             if (result.selectedTime) selectedTime = result.selectedTime;
+            if (result.ticketsPerIteration)
+              ticketsPerIteration = result.ticketsPerIteration;
 
             console.log(
-              `🧪 DEBUG: Progression réelle: ${cartCount}/${storedTarget} (${selectedTime})`
+              `🧪 DEBUG: Progression réelle: ${cartCount}/${storedTarget} (${selectedTime}, ${ticketsPerIteration}/itération)`
             );
             sendNote(
               `🛒 Panier: ${cartCount}/${storedTarget} tickets (${selectedTime})`
@@ -292,7 +296,14 @@
 
   // Essayer de récupérer les valeurs stockées
   chrome.storage.local.get(
-    ["targetQuantity", "currentQuantity", "baseUrl", "selectedTime"],
+    [
+      "targetQuantity",
+      "currentQuantity",
+      "baseUrl",
+      "selectedTime",
+      "ticketsPerIteration",
+      "totalTicketsAdded",
+    ],
     function (result) {
       if (result.targetQuantity) {
         targetQuantity = result.targetQuantity;
@@ -309,6 +320,14 @@
       if (result.selectedTime) {
         selectedTime = result.selectedTime;
         console.log("🕒 Horaire sélectionné:", selectedTime);
+      }
+      if (result.ticketsPerIteration) {
+        ticketsPerIteration = result.ticketsPerIteration;
+        console.log("🎟️ Tickets par itération:", ticketsPerIteration);
+      }
+      if (result.totalTicketsAdded !== undefined) {
+        totalTicketsAdded = result.totalTicketsAdded;
+        console.log("📊 Tickets ajoutés jusqu'ici:", totalTicketsAdded);
       }
     }
   );
@@ -794,6 +813,7 @@
                 currentQuantity: cartCount,
                 selectedTime: selectedTime,
                 targetQuantity: targetQuantity,
+                ticketsPerIteration: ticketsPerIteration,
               },
               function () {
                 console.log("🧪 DEBUG: variables sauvegardées avec succès", {
@@ -801,6 +821,7 @@
                   currentQuantity: cartCount,
                   selectedTime,
                   targetQuantity,
+                  ticketsPerIteration,
                 });
                 resolve();
               }
@@ -953,6 +974,7 @@
           currentQuantity,
           selectedTime,
           targetQuantity,
+          ticketsPerIteration,
           url: window.location.href,
         });
         sendNote("🧪 DEBUG: Page panier détectée");
@@ -962,19 +984,22 @@
 
         // Récupérer les données actuelles du stockage
         chrome.storage.local.get(
-          ["targetQuantity", "baseUrl", "selectedTime"],
+          ["targetQuantity", "baseUrl", "selectedTime", "ticketsPerIteration"],
           async function (result) {
             console.log("🧪 DEBUG: Valeurs récupérées du stockage:", result);
 
             if (result.targetQuantity) targetQuantity = result.targetQuantity;
             if (result.baseUrl) baseUrl = result.baseUrl;
             if (result.selectedTime) selectedTime = result.selectedTime;
+            if (result.ticketsPerIteration)
+              ticketsPerIteration = result.ticketsPerIteration;
 
             console.log("📊 État dans le panier: ", {
               baseUrl,
               cartCount,
               selectedTime,
               targetQuantity,
+              ticketsPerIteration,
             });
             sendNote(
               `📊 Panier: ${cartCount}/${targetQuantity} tickets (${selectedTime})`
@@ -998,6 +1023,7 @@
                   count: cartCount,
                   date: new Date().toISOString(),
                   targetQuantity: targetQuantity,
+                  ticketsPerIteration: ticketsPerIteration,
                   time: selectedTime,
                 },
               });
@@ -1058,7 +1084,13 @@
 
       await new Promise((resolve) => {
         chrome.storage.local.get(
-          ["baseUrl", "currentQuantity", "targetQuantity", "selectedTime"],
+          [
+            "baseUrl",
+            "currentQuantity",
+            "targetQuantity",
+            "selectedTime",
+            "ticketsPerIteration",
+          ],
           function (result) {
             console.log("🧪 DEBUG: Données récupérées dans l'iframe:", result);
 
@@ -1071,12 +1103,15 @@
               currentQuantity = result.currentQuantity;
             if (result.targetQuantity) targetQuantity = result.targetQuantity;
             if (result.selectedTime) selectedTime = result.selectedTime;
+            if (result.ticketsPerIteration)
+              ticketsPerIteration = result.ticketsPerIteration;
 
             console.log("🧪 DEBUG: État dans l'iframe:", {
               baseUrl,
               currentQuantity,
               selectedTime,
               targetQuantity,
+              ticketsPerIteration,
             });
 
             resolve();
@@ -1118,15 +1153,41 @@
         console.log(`✅ Bouton '${selectedTime}' cliqué (iframe)`);
         sendNote(`✅ Bouton '${selectedTime}' cliqué (iframe)`);
 
-        // attendre puis incrémenter (si besoin)
+        // Attendre puis incrémenter le nombre de tickets selon ticketsPerIteration
         await new Promise((r) => setTimeout(r, 1000));
+
+        // Trouver le bouton d'incrément
         const incBtnIframe = document.querySelector(
           'button.jss1250.jss1337.jss1339.btnBackgroundColor.quantityIconStyle.jss1330[data-bdd="increment-button"]'
         );
+
         if (incBtnIframe) {
-          incBtnIframe.click();
-          console.log("✅ Bouton d'incrément cliqué (iframe)");
-          sendNote("✅ Bouton d'incrément cliqué (iframe)");
+          // Cliquer sur le bouton d'incrément le nombre de fois spécifié
+          // Modification: incrémenter exactement le nombre de fois spécifié par ticketsPerIteration
+          // au lieu de soustraire 1 (considérant qu'un ticket est déjà sélectionné par défaut)
+          const clicksNeeded = ticketsPerIteration;
+
+          if (clicksNeeded > 0) {
+            console.log(`🎟️ Incrémentation de ${clicksNeeded} tickets...`);
+            sendNote(
+              `🎟️ Ajout de ${ticketsPerIteration} tickets à cette itération`
+            );
+
+            // Cliquer sur le bouton d'incrément le nombre de fois nécessaire
+            for (let i = 0; i < clicksNeeded; i++) {
+              incBtnIframe.click();
+              await new Promise((r) => setTimeout(r, 300)); // Court délai entre les clics
+            }
+
+            console.log(
+              `✅ ${ticketsPerIteration} tickets sélectionnés (${clicksNeeded} clics sur +)`
+            );
+          } else {
+            console.log("✅ Conservation du ticket unique par défaut");
+          }
+
+          console.log("✅ Sélection de quantité effectuée (iframe)");
+          sendNote(`✅ ${ticketsPerIteration} ticket(s) sélectionné(s)`);
 
           // Attendre puis cliquer sur "Continue"
           await new Promise((r) => setTimeout(r, 1000));
@@ -1151,10 +1212,11 @@
                   {
                     baseUrl: baseUrl,
                     selectedTime: selectedTime,
+                    ticketsPerIteration: ticketsPerIteration,
                   },
                   function () {
                     console.log(
-                      "🧪 DEBUG: baseUrl et selectedTime sauvegardées avant Add to Cart"
+                      "🧪 DEBUG: variables sauvegardées avant Add to Cart"
                     );
                     resolve();
                   }
@@ -1199,6 +1261,7 @@
                 currentQuantity,
                 selectedTime,
                 targetQuantity,
+                ticketsPerIteration,
               });
 
               // Si on n'a pas atteint la quantité cible, retourner à la page principale
@@ -1214,6 +1277,7 @@
                     currentQuantity: currentQuantity,
                     selectedTime: selectedTime,
                     targetQuantity: targetQuantity,
+                    ticketsPerIteration: ticketsPerIteration,
                   },
                   function () {
                     console.log(
@@ -1246,8 +1310,21 @@
                 currentQuantity,
                 selectedTime,
                 targetQuantity,
+                ticketsPerIteration,
               });
             }
+
+            // Incrémenter le compteur totalTicketsAdded
+            totalTicketsAdded += ticketsPerIteration;
+            await new Promise((resolve) => {
+              chrome.storage.local.set({ totalTicketsAdded }, resolve);
+            });
+            console.log(
+              `🎟️ Total tickets ajoutés: ${totalTicketsAdded}/${targetQuantity}`
+            );
+            sendNote(
+              `🎟️ Total tickets ajoutés: ${totalTicketsAdded}/${targetQuantity}`
+            );
           }
         }
       } catch (err) {
@@ -1293,93 +1370,24 @@
       if (message.selectedTime) {
         selectedTime = message.selectedTime;
       }
+      if (message.ticketsPerIteration) {
+        ticketsPerIteration = message.ticketsPerIteration;
+      }
 
       // Réinitialiser le compteur quand on définit une nouvelle quantité
       currentQuantity = 0;
+      totalTicketsAdded = 0;
       chrome.storage.local.set({
         currentQuantity: 0,
         selectedTime: selectedTime,
         targetQuantity: message.quantity,
+        ticketsPerIteration: ticketsPerIteration,
+        totalTicketsAdded: 0,
       });
       console.log(
-        `📊 Paramètres mis à jour: ${targetQuantity} tickets à ${selectedTime}`
+        `📊 Paramètres mis à jour: ${targetQuantity} tickets à ${selectedTime} (${ticketsPerIteration}/itération)`
       );
       sendResponse({ success: true });
     }
   });
-
-  // Vérification périodique pour s'assurer que le processus continue ou s'arrête correctement
-  if (window.self === window.top) {
-    // Exécuter une vérification toutes les 10 secondes
-    const intervalId = setInterval(async () => {
-      // Si on est sur la page du panier, vérifier si on a atteint notre cible
-      const isCart =
-        window.location.href.includes("/checkout") ||
-        window.location.href.includes("cart=1");
-
-      if (isCart) {
-        // Compter les tickets dans le panier
-        const cartCount = await countCartItems();
-
-        chrome.storage.local.get(
-          ["targetQuantity", "baseUrl", "selectedTime"],
-          function (result) {
-            console.log("🧪 DEBUG: Vérification périodique:", {
-              atteint: cartCount >= result.targetQuantity,
-              cartCount,
-              targetQuantity: result.targetQuantity,
-            });
-
-            // Si on a atteint ou dépassé notre cible, s'arrêter
-            if (cartCount >= result.targetQuantity) {
-              console.log(
-                "✅ Vérification périodique: cible atteinte, arrêt de l'automatisation"
-              );
-              sendNote(
-                `✅ Terminé! ${cartCount}/${result.targetQuantity} tickets dans le panier`
-              );
-
-              // Réinitialiser le compteur
-              chrome.storage.local.set({
-                currentQuantity: 0,
-                // Enregistrer le nombre réel d'articles pour référence
-                lastCompletedRun: {
-                  count: cartCount,
-                  date: new Date().toISOString(),
-                  targetQuantity: result.targetQuantity,
-                  time: result.selectedTime,
-                },
-              });
-
-              return; // Ne pas continuer
-            }
-
-            // Si on n'a pas atteint la cible et qu'on n'est pas en train de continuer, rediriger
-            if (
-              cartCount < result.targetQuantity &&
-              result.baseUrl &&
-              !window.location.href.includes("continueShopping=true")
-            ) {
-              console.log(
-                "🧪 DEBUG: Redirection nécessaire détectée par vérification périodique"
-              );
-              sendNote(
-                `⏱️ Continuation automatique (${cartCount}/${result.targetQuantity})`
-              );
-
-              // Rediriger vers la page principale
-              const continueUrl = result.baseUrl.includes("?")
-                ? result.baseUrl + "&continueShopping=true"
-                : result.baseUrl + "?continueShopping=true";
-
-              // Utiliser un délai pour éviter les redirections trop rapides
-              setTimeout(() => {
-                window.location.href = continueUrl;
-              }, 1000);
-            }
-          }
-        );
-      }
-    }, 10000);
-  }
 })();
